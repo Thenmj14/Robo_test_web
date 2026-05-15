@@ -7,6 +7,7 @@ export default function ClientDashboard() {
   const [progress, setProgress] = useState(0);
   const [version, setVersion] = useState("1.0.0");
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [repoUrl, setRepoUrl] = useState("");
 
   useEffect(() => {
     // Initial fetch to get current state
@@ -15,6 +16,7 @@ export default function ClientDashboard() {
       .then((data) => {
         if (data.version) setVersion(data.version);
         if (data.status) setUpdateStatus(data.status);
+        if (data.github_url !== undefined) setRepoUrl(data.github_url);
         if (data.github_url && data.target_version && data.version !== data.target_version) setUpdateAvailable(true);
         else setUpdateAvailable(false);
       });
@@ -26,6 +28,7 @@ export default function ClientDashboard() {
         const data = await res.json();
         
         if (data.version) setVersion(data.version);
+        if (data.github_url !== undefined) setRepoUrl(data.github_url);
         if (data.github_url && data.target_version && data.version !== data.target_version) setUpdateAvailable(true); // "sees" the link here and checks if it's new!
         else setUpdateAvailable(false);
 
@@ -156,6 +159,15 @@ export default function ClientDashboard() {
                   v{version}
                 </span>
               </div>
+
+              {updateAvailable && repoUrl && (
+                <div className="flex flex-col space-y-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                  <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Pending Firmware Bundle (ZIP)</span>
+                  <span className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-lg break-all border border-blue-100 dark:border-blue-800/50">
+                    {repoUrl}
+                  </span>
+                </div>
+              )}
 
               {/* Progress/Health Meter Line */}
               <div>
