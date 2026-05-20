@@ -120,13 +120,15 @@ Python:
 
 **# --- CONFIGURATION ---**
 
-**API\_URL = "http://192.168.1.11:3000/api/robot" # Ensure this matches your Laptop IP**
+**API\_URL = "http://192.168.1.12:3000/api/robot" # Matches your current laptop IP**
 
 **BASE\_DIR = "/opt/robot/versions"**
 
 **CURRENT\_LINK = "/opt/robot/current"**
 
 **TEMP\_EXTRACT = "/opt/robot/temp\_extract"**
+
+**MASTER\_KEY\_PATH = "/opt/robot/master\_key.txt"**
 
 
 
@@ -139,10 +141,6 @@ Python:
 &#x20;       **response = requests.get(API\_URL, timeout=5)**
 
 &#x20;       **data = response.json()**
-
-&#x20;       
-
-&#x20;       **# Check if update is triggered**
 
 &#x20;       **if str(data.get('trigger\_update')).lower() == "true":**
 
@@ -158,11 +156,85 @@ Python:
 
 
 
+**def verify\_zip\_signature(zip\_file\_path):**
+
+&#x20;   **"""PEEK GATEKEEPER: Scans the ZIP contents for secret\_key.txt and validates it"""**
+
+&#x20;   **print("🔒 Gatekeeper: Checking update signature...")**
+
+&#x20;   **try:**
+
+&#x20;       **# Read the master key stored on the Pi**
+
+&#x20;       **with open(MASTER\_KEY\_PATH, 'r') as f:**
+
+&#x20;           **master\_key = f.read().strip()**
+
+
+
+&#x20;       **with zipfile.ZipFile(zip\_file\_path, 'r') as zip\_ref:**
+
+&#x20;           **# Get a list of EVERY file path inside the ZIP**
+
+&#x20;           **all\_files = zip\_ref.namelist()**
+
+&#x20;           
+
+&#x20;           **# Find the file that ends with secret\_key.txt, no matter what folder it sits in**
+
+&#x20;           **key\_file\_in\_zip = None**
+
+&#x20;           **for file\_path in all\_files:**
+
+&#x20;               **if file\_path.endswith("secret\_key.txt"):**
+
+&#x20;                   **key\_file\_in\_zip = file\_path**
+
+&#x20;                   **break**
+
+&#x20;           
+
+&#x20;           **if not key\_file\_in\_zip:**
+
+&#x20;               **print("❌ GATEKEEPER CRITICAL FAILURE: secret\_key.txt missing from ZIP payload.")**
+
+&#x20;               **return False**
+
+&#x20;           
+
+&#x20;           **# Read the secret key directly out of that path location**
+
+&#x20;           **with zip\_ref.open(key\_file\_in\_zip) as zf:**
+
+&#x20;               **incoming\_key = zf.read().decode('utf-8').strip()**
+
+
+
+&#x20;       **# Compare the keys**
+
+&#x20;       **if incoming\_key == master\_key:**
+
+&#x20;           **print("✅ GATEKEEPER SUCCESS: Signatures match! Proceeding with extraction...")**
+
+&#x20;           **return True**
+
+&#x20;       **else:**
+
+&#x20;           **print("❌ GATEKEEPER CRITICAL FAILURE: Keys do not match! Fake update detected.")**
+
+&#x20;           **return False**
+
+&#x20;           
+
+&#x20;   **except Exception as e:**
+
+&#x20;       **print(f"❌ Gatekeeper Verification Error: {e}")**
+
+&#x20;       **return False**
+
 **def do\_update(zip\_url):**
 
 &#x20;   **old\_version\_path = os.path.realpath(CURRENT\_LINK) if os.path.exists(CURRENT\_LINK) else None**
-
-&#x20;   **print(f"Current working version is: {old\_version\_path}")**
 
 
 
@@ -176,6 +248,20 @@ Python:
 
 
 
+&#x20;   **# 🔥 SECURITY GATEKEEPER CHECK RUNS HERE 🔥**
+
+&#x20;   **if not verify\_zip\_signature("update.zip"):**
+
+&#x20;       **print("🚨 SECURITY ALERT: Deleting malicious package immediately.")**
+
+&#x20;       **if os.path.exists("update.zip"): os.remove("update.zip")**
+
+&#x20;       **return # STOP THE UPDATE IMMEDIATELY!**
+
+
+
+&#x20;   **# Proceeding only if signature check passed**
+
 &#x20;   **if os.path.exists(TEMP\_EXTRACT): shutil.rmtree(TEMP\_EXTRACT)**
 
 &#x20;   **with zipfile.ZipFile("update.zip", "r") as zip\_ref:**
@@ -184,11 +270,35 @@ Python:
 
 
 
+&#x20;   **# Determine Version Tag Name Dynamically**
+
 &#x20;   **extracted\_folders = os.listdir(TEMP\_EXTRACT)**
 
 &#x20;   **inner\_folder = os.path.join(TEMP\_EXTRACT, extracted\_folders\[0])**
 
-&#x20;   **new\_version\_tag = "v\_manual\_update\_" + str(int(time.time())) # Unique name based on time**
+&#x20;   
+
+&#x20;   **new\_version\_tag = "v\_unknown"**
+
+&#x20;   **try:**
+
+&#x20;       **new\_main\_path = os.path.join(inner\_folder, "main.py")**
+
+&#x20;       **with open(new\_main\_path, 'r') as f:**
+
+&#x20;           **for line in f:**
+
+&#x20;               **if 'VERSION =' in line:**
+
+&#x20;                   **new\_version\_tag = "v" + line.split('"')\[1]**
+
+&#x20;                   **break**
+
+&#x20;   **except:**
+
+&#x20;       **new\_version\_tag = "v\_manual\_update\_" + str(int(time.time()))**
+
+
 
 &#x20;   **target\_dir = os.path.join(BASE\_DIR, new\_version\_tag)**
 
@@ -204,35 +314,29 @@ Python:
 
 &#x20;   **print("Switching symlink to new version...")**
 
-&#x20;   **if os.path.lexists(CURRENT\_LINK):**
-
-&#x20;       **os.unlink(CURRENT\_LINK)**
+&#x20;   **if os.path.lexists(CURRENT\_LINK): os.unlink(CURRENT\_LINK)**
 
 &#x20;   **os.symlink(target\_dir, CURRENT\_LINK)**
 
 
 
-&#x20;   **print("Verifying if Version 3 is stable...")**
+&#x20;   **# Health Check**
+
+&#x20;   **print("Verifying stability...")**
 
 &#x20;   **try:**
 
 &#x20;       **process = subprocess.Popen(\["python3", os.path.join(CURRENT\_LINK, "main.py")])**
 
-&#x20;       **time.sleep(5) # Give it 5 seconds to see if it crashes**
+&#x20;       **time.sleep(5)**
 
-&#x20;       
+&#x20;       **if process.poll() is not None:**
 
-&#x20;       **if process.poll() is not None: # poll() is not None means it stopped/crashed**
+&#x20;           **raise Exception("New version crashed on startup!")**
 
-&#x20;           **raise Exception("New version failed to stay running!")**
+&#x20;       **process.terminate()**
 
-&#x20;       
-
-&#x20;       **process.terminate() # It survived! Stop the test run.**
-
-&#x20;       **print("--- UPDATE SUCCESSFUL: Version is healthy ---")**
-
-
+&#x20;       **print("--- UPDATE SUCCESSFUL ---")**
 
 &#x20;   **except Exception as e:**
 
@@ -240,15 +344,13 @@ Python:
 
 &#x20;       **if old\_version\_path:**
 
-&#x20;           **print(f"Rolling back to previous version: {old\_version\_path}")**
+&#x20;           **print(f"Rolling back to: {old\_version\_path}")**
 
 &#x20;           **if os.path.lexists(CURRENT\_LINK): os.unlink(CURRENT\_LINK)**
 
 &#x20;           **os.symlink(old\_version\_path, CURRENT\_LINK)**
 
-&#x20;       **else:**
-
-&#x20;           **print("No previous version found to roll back to.")**
+&#x20;           **os.system("sudo systemctl restart robot\_app.service")**
 
 
 
